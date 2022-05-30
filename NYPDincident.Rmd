@@ -1,0 +1,191 @@
+---
+title: "NYPDIncident"
+date: "5/18/2022"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+This data-set records shooting incidents occurred in NYC from 2006 to 2020. The data is manually extracted and reviewed by the Office of Management Analysis and Planning  every quarter and is published on the NYPD website.
+
+```{r get_data, message=FALSE}
+#load packages
+library(tidyverse)
+library(lubridate)
+library(ggplot2)
+
+#get data from website
+url<- "https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD"
+shooting_incidents <-read.csv(url, na.strings=c("","NA"))
+shooting_incidents$STATISTICAL_MURDER_FLAG<- as.logical(shooting_incidents$STATISTICAL_MURDER_FLAG) 
+#change column data type from chr to lgl
+```
+
+There are 23585 rows and 19 columns where each row is a shooting incident and each column can be explained as the following:  
+- *INCIDENT_KEY* contains a randomly generated persistent ID for each arrest.   
+- *OCCUR_DATE* contains the exact date of the shooting incident.    
+- *OCCUR_TIME* contains the exact time of the shooting incident.    
+- *BORO* contains the borough where the shooting incident occurred.  
+- *PRECINCT* contains the precinct where the shooting incident occurred.  
+- *JURISDICTION_CODE* contains the jurisdiction where the shooting incident occurred. 0 for Patrol; 1 for Transit; 2 for Housing; 3 for non NYPD jurisdictions.    
+- *LOCATION_DESC* contains the location of the shooting incident.  
+- *STATISTICAL_MURDER_FLAG* contains the shooting resulted in the victim's death which would be counted as murder.  
+- *PERP_AGE_GROUP* contains the perpetrator's age within the category.  
+- *PERP_SEX* contains the perpetrator's sex description.  
+- *VIC_AGE_GROUP* contains the victim's age within a category.  
+- *VIC_SEX* contains the victim's sex description.    
+- *X_COORD_CD* contains the mid block X-coordinate for the New York State Plane Coordinate System, Long Island Zone, NAD 83, units feet.  
+- *Y_COORD_CD* contains the mid block Y-coordinate for the New York State Plane Coordinate System, Long Island Zone, NAD 83, units feet.  
+- *Latitude* contains the latitude coordinate for Global Coordinate System,decimal degrees.  
+- *Longitude* contains the longitude coordinate for Global Coordinate System,decimal degrees.  
+- *Lon_Lat* contains the longitude and latitude coordinates for mapping.  
+
+# Tidying and Transforming Data
+
+Tidy the data set first by removing *INCIDENT_KEY*, *LOCATION_DESC*, *X_COORD_CD*, *Y_COORD_CD*, *Latitude*, *Longitude*, and *Lon_Lat* since they are not required in the process of visualizing, analyzing, and modeling data.
+```{r tidy_data, message=FALSE}
+shooting_incidents<- shooting_incidents%>%
+  mutate(OCCUR_DATE=mdy(OCCUR_DATE)) %>% #coerce date into correct type
+  select(-c(INCIDENT_KEY, LOCATION_DESC), -(X_COORD_CD:Lon_Lat))
+```
+
+### Check for missing data.
+```{r missing_date}
+sum(is.na(shooting_incidents$OCCUR_DATE))
+sum(is.na(shooting_incidents$OCCUR_TIME))
+sum(is.na(shooting_incidents$BORO))
+sum(is.na(shooting_incidents$PRECINCT))
+sum(is.na(shooting_incidents$JURISDICTION_CODE))
+sum(is.na(shooting_incidents$STATISTICAL_MURDER_FLAG))
+sum(is.na(shooting_incidents$PERP_AGE_GROUP))
+sum(is.na(shooting_incidents$PERP_SEX))
+sum(is.na(shooting_incidents$PERP_RACE))
+sum(is.na(shooting_incidents$VIC_AGE_GROUP))
+sum(is.na(shooting_incidents$VIC_SEX))
+sum(is.na(shooting_incidents$VIC_RACE))
+
+```
+Since there are only 2 missing values in *JURISDICTION_CODE*, we can safely remove these 2 incidents since it would not change the data significantly. However, with 8295 missing values in *PERP_AGE_GROUP*, 8261 missing values in *PERP_SEX*, and 8261 missing values in *PERP_RACE*, the missing values cannot be remove as it will change the results significantly. Therefore, we will remove *PERP_AGE_GROUP*, *PERP_SEX*, *PERP_RACE* columns and not use them in data analysis.
+```{r delete_missing_value, message=FALSE}
+shooting_incidents <- shooting_incidents[!is.na(shooting_incidents$JURISDICTION_CODE), ]
+shooting_incidents <- shooting_incidents %>%
+  select(-(PERP_AGE_GROUP:PERP_RACE))
+```
+
+# Data Analysis
+
+## Shooting cases and deaths by boro.  
+We are interested to see the number of cases, deaths, proportion of cases by each boro to total cases, and whether there are some boro shootings more likely to result in death?
+```{r boro_deaths_rate}
+boro_deaths_rate <- shooting_incidents %>%
+group_by(BORO) %>%
+summarize(cases= n(), deaths=sum(STATISTICAL_MURDER_FLAG, na.rm=TRUE)) %>%
+mutate(cases_prop= round(cases/nrow(shooting_incidents), 4)) %>%
+mutate(deaths_rate= round(deaths/cases, 4)) %>%
+arrange(desc(cases)) %>%
+ungroup()
+boro_deaths_rate
+```
+
+## Top 5 shooting cases by precincts.
+We are interested to see the number of cases, deaths, proportion of cases in each of top 5 precincts to total cases, and whether there are some precincts shootings more likely to result in death?
+```{r precincts_deaths_rate}
+precinct_deaths_rate <- shooting_incidents %>%
+  group_by(PRECINCT) %>%
+  summarize(cases= n(), deaths=sum(STATISTICAL_MURDER_FLAG, na.rm=TRUE)) %>%
+  mutate(cases_prop= round(cases/nrow(shooting_incidents), 4)) %>%
+  mutate(deaths_rate= round(deaths/cases, 4)) %>%
+  arrange(desc(cases)) %>%
+  top_n(5) %>%
+  ungroup()
+precinct_deaths_rate
+```
+
+## Shooting cases and deaths by jurisdiction.  
+We are interested to see the number of cases, deaths, proportion of cases by jurisdiction code, and whether there are some juridistion code shootings more likely to result in death?
+```{r jurisdiction_deaths_rate}
+jurisdiction_deaths_rate <- shooting_incidents %>%
+  group_by(JURISDICTION_CODE) %>%
+  summarize(cases= n(), deaths=sum(STATISTICAL_MURDER_FLAG, na.rm=TRUE)) %>%
+  mutate(cases_prop= round(cases/nrow(shooting_incidents), 4)) %>%
+  mutate(deaths_rate=round(deaths/cases, 4)) %>%
+  arrange(desc(cases)) %>%
+  ungroup()
+jurisdiction_deaths_rate
+```
+
+## Shooting cases and deaths by victims age group.
+We are interested to see the number of cases, deaths, proportion of cases by victims age to total cases, and whether there are some age group shootings more likely to result in death?
+```{r agegroup_deaths_rate}
+victimage_deaths_rate<-shooting_incidents %>%
+  group_by(VIC_AGE_GROUP) %>%
+  summarize(cases= n(), deaths=sum(STATISTICAL_MURDER_FLAG, na.rm=TRUE)) %>%
+  mutate(cases_prop= round(cases/nrow(shooting_incidents), 4)) %>%
+  mutate(deaths_rate=round(deaths/cases, 4)) %>%
+  arrange(desc(cases)) %>%
+  ungroup()
+victimage_deaths_rate
+
+```
+
+## Shooting cases and deaths by victims sex.
+We are interested to see the number of cases, deaths, proportion of cases by victims sex to total cases, and whether there is a shooting that is more likely to result death of a sex more than another.
+```{r victimsex_deaths_rate}
+victimsex_deaths_rate <- shooting_incidents %>%
+group_by(VIC_SEX) %>%
+summarize(cases= n(), deaths=sum(STATISTICAL_MURDER_FLAG, na.rm=TRUE)) %>%
+mutate(cases_prop= round(cases/nrow(shooting_incidents), 4)) %>%
+mutate(deaths_rate=round(deaths/cases, 4)) %>%
+arrange(desc(cases)) %>%
+ungroup()
+victimsex_deaths_rate
+```
+
+## Shooting cases and deaths by victims race.
+We are interested to see the number of cases, deaths, proportion of cases by races to total cases, and whether there are some races shootings more likely result in death?
+```{r victimrace_deaths_rate}
+victimrace_deaths_rate <- shooting_incidents %>%
+group_by(VIC_RACE) %>%
+summarize(cases= n(), deaths=sum(STATISTICAL_MURDER_FLAG, na.rm=TRUE)) %>%
+  mutate(cases_prop= round(cases/nrow(shooting_incidents), 4)) %>%
+mutate(deaths_rate=round(deaths/cases, 4)) %>%
+arrange(desc(cases)) %>%
+ungroup()
+victimrace_deaths_rate
+
+```
+# Visualize data
+
+## Distribution of Shooting Incidents by Occur Date
+We are interested to visualize the distribution of shooting incident by occur date using histogram to see whether there are a trend in which months shootings occur the most.
+```{r date_histogram}
+date_histogram<-shooting_incidents %>%
+ggplot(aes(x= OCCUR_DATE)) +
+geom_histogram(binwidth = 70, color="darkblue", fill="lightblue") +
+labs(title= "Distribution of Shooting Incidents by Occur Date", x="Date", y="Cases")
+date_histogram
+```
+##Distribution of Shooting Incidents by Occur Time
+```{r time_histogram}
+hist(x=as.numeric(substr(shooting_incidents$OCCUR_TIME, 1,2)), breaks=0:23, main="Distribution of Shooting Incidents by Occur Time", xlab= "Time", ylab="Cases", col="lightblue")
+```
+## Model victim age group
+```{r}
+mod <- lm(deaths~cases, data = victimage_deaths_rate)
+summary(mod)
+victimage_w_pred <- victimage_deaths_rate %>% mutate(pred = predict(mod))
+victimage_w_pred %>% ggplot() +
+geom_point(aes(x= cases, y= deaths), color= "blue") +
+geom_point(aes(x=cases, y=pred),color="red")
+```
+
+# Conclusion
+In conclusion, the data shows that some of the top shootings happened in Brooklyn, precinct 106, and patrol jurisdiction; victims aged 25-44, male, and black get involved in the most shootings incidents in New York. In the data visualization section, we can see that shooting incidents occur the most in 2020, and during midnight, the least shootings occur between 5 am and 10 am. There is clear indication that cases are indication for deaths where the actual cases and deaths closely follows the predicted model for victim age group. 
+
+# Bias
+My personal bias in regard to shooting incidents is that they would occur the most during the night when most people are asleep, to mitigate my personal bias by looking at the shooting incidents occur by time to see when shooting incidents occur and it was found that indeed, most of the shooting incidents occur at night, and peaks at midnight. 
